@@ -1,0 +1,742 @@
+---
+title: "Vehicle accidents analysis"
+author: "Karolina Szwedo"
+date: "09/02/2021"
+output:
+    html_document: default
+---
+<style>
+.html-widget {
+    margin: auto;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggmap)
+library(utf8)
+library(leaflet)
+library(expss)
+library(alluvial)
+library(ggalluvial)
+library(chron)
+library(lubridate)
+library(kableExtra)
+```
+
+The aim of this report is to analyze vehicle accidents in the context of severity of injuries. Database used in the analysis includes information concering motor vehicle crashes within the City of Somerville from 01.01.2010 to 30.04.2018. Based on the original database two datasets were created: *crashes* and *crashes_gender*. This two datasets contain two common variables: *injury* and *meansev*. Second dataset *(crashes_gender)* was created separately because it was easier for the author to transform the original form of the variable *contribuition* in the smaller dataset. Let's have a look at the both datasets. 
+
+
+### Crashes
+Dataset consist of 4033 observations and 10 variables.
+Description of the variables:
+
+* date - date of the accident
+* time - time when the accident took place
+* address - variable created based on the original variable *location* with the help of library *tidygeocoder* and the function *geo*.
+* lat - latitude of the given address
+* long - longitude of the given address
+* injury - binary variable containing information whether anyone has been injured (1) or not (0)
+* meansev - mean of injury severity sustained in the accident (1 - fatal injury, 5 - no injury)
+* nb_of_vehicles - number of vehicles involved in the accident
+* vehicle_type - type of vehicle involved in the accident
+* age - age of driver
+
+
+
+```{r df1, echo=FALSE}
+crashes <- read.csv("Data/crashes.csv")
+crashes_ds <- subset(crashes, select = c(nb_of_vehicles, age, injury, meansev))
+table1 <- summary(crashes_ds)
+knitr::kable(table1, digits = 2, col.names=c("nb_of_vehicles", "age", "injury", "meansev"),
+             caption = "<center><strong>Descriptive statistics of numeric variables</strong></center>") %>%
+             kable_styling(bootstrap_options = c("striped", "hover"))
+             
+```
+```{r df2, include=FALSE}
+injuries <- crashes %>%
+  select(injury) %>%
+  filter(injury %in% c(0,1))
+
+injuries <- injuries %>% 
+  mutate(injury = dplyr::recode(injury, `1` = "Accidents with injuries",
+                                `0` = "Accidents without injuries"))
+
+crashes.distr <- crashes %>%
+  filter(meansev %in% c(1,2,3,4,5))
+
+crashes.distr <- crashes.distr %>% 
+  mutate(meansev = dplyr::recode(meansev, `1` = "Fatal injury", `2` = "Incapacitating", 
+                                 `3` = "Non-incapacitating",`4` ="Possible", `5`= "No injury"))
+
+crashes.distr$meansev <- factor(crashes.distr$meansev, levels= c("Fatal injury", "Incapacitating",
+                                                             "Non-incapacitating","Possible",
+                                                             "No injury"))
+crashes.distr[order(crashes.distr$meansev), ]
+```
+
+```{r distribution1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+ggplot(data = crashes, aes(x = nb_of_vehicles)) + 
+  geom_bar(color = "black", fill = "yellowgreen") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = -.4) +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10, margin = margin(t = 0, r = 0, b = 15, l = 0)),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Distribution of nb_of_vehicles", x = "Number of vehicles") 
+```
+
+```{r distribution2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+ggplot(data = injuries, aes(x = injury, fill = injury)) + 
+  geom_bar(color = "black") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = -.4) +
+  scale_fill_manual(values = c("Accidents without injuries" = "green3", "Accidents with injuries" = "red")) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10, margin = margin(t = 0, r = 0, b = 15, l = 0)),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Distribution of injury", x = "") 
+```
+
+```{r distribution3, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+ggplot(data = crashes.distr, aes(x = meansev, fill = meansev)) + 
+  geom_bar(color = "black") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = -.4) +
+  scale_fill_manual(values = c("Fatal injury" = "red", "Incapacitating" = "orange",
+                               "Non-incapacitating" = "yellow2", 
+                               "Possible" = "yellowgreen", "No injury" = "green3")) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10, margin = margin(t = 0, r = 0, b = 15, l = 0)),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Distribution of meansev", x = "Severity of injuries") 
+
+```
+<br> <br>
+
+### Crashes gender
+Dataset consist of 752 observations (because of missing values in variable *gender*) and 4 variables.
+
+Description of the variables:
+
+* gender - gender of the driver
+* contribution - binary variable containing information whether driver was steering the vehicle correctly (0) or not (1)
+* injury - as above
+* meansev - as above
+<br> <br>
+
+```{r distribution4, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+gender <- read.csv("Data/crashes_gender.csv", sep = ",")
+
+ggplot(data = gender, aes(x = gender, fill = gender)) + 
+  geom_bar(color = "black") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = -.4) +
+  scale_fill_manual(values = c("Female" = "pink", "Male" = "blue")) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Distribution of gender", x = "") 
+```
+
+```{r df3, include=FALSE}
+contr <- gender %>% 
+  mutate(contribution = dplyr::recode(contribution, `1` = "Driver contributed to the accident",
+                              `0` = "Driver didn't contributed to the accident"))
+```
+
+```{r distribution5, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+ggplot(data = contr, aes(x = factor(contribution), fill = contribution)) + 
+  geom_bar(color = "black") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = -.4) +
+  scale_fill_manual(values = c("Driver didn't contributed to the accident" = "green3",
+                               "Driver contributed to the accident" = "red")) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10, margin = margin(t = 0, r = 0, b = 15, l = 0)),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Distribution of contribution", x = "") 
+```
+<br> <br>
+
+## Where the accidents took place?
+<br> <br>
+
+```{r map1, echo=FALSE, fig.align="center"}
+crashes_map <- subset(crashes, select=c(long, lat, meansev, nb_of_vehicles, injury))
+crashes_map <- na.omit(crashes_map)
+# labelling meansev
+sev_names <- list(
+  '1'="Fatal Injury",
+  '2'="Incapacitating",
+  '3'="Non‐incapacitating",
+  '4'="Possible",
+  '5' = "No injury"
+)
+
+sev_labeller <- function(variable,value){
+  return(sev_names[value])
+}
+
+leaflet(crashes_map) %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(~long, ~lat, clusterOptions = markerClusterOptions())
+```
+<br> <br>
+Based on the map above we can conclude that the highest number of accidents took place
+in the south-east region of the city and also in the center region.
+<br> <br>
+
+```{r map2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+qmplot(long, lat, data = crashes_map, maptype = "toner-lite",  geom = "point",
+       color = factor(injury), size = nb_of_vehicles, alpha = 0.005) + 
+  scale_color_manual(labels = c("No", "Yes"), values = c("green3", "red")) +
+  guides(alpha= FALSE, size = guide_legend(title = "Number of vehicles", title.hjust = 0.5,
+                                           legend.position = "bottom", keywidth = 3), 
+         color = guide_legend(title = "Has anyone been injured?", legend.position = "bottom", keywidth = 3,  
+                              override.aes = list(shape = 15, size = 8)), title.hjust = 0.5) +
+  theme(plot.background = element_rect(fill = "grey86"),
+        legend.background = element_rect(fill = "grey86"),
+        legend.key = element_rect(fill = "grey86"),
+        legend.title  = element_text(face = "bold"))
+```
+<br> <br>
+This one presents accidents with or without injuries. The color
+on the map reflects whether anyone was injured in the accident or not. The size of
+the points reflects number of vehicles involved in the accident. We conclude that in
+most of the accidents no one was injured and there were at least two cars involved.
+<br> <br>
+
+```{r map3, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+qmplot(long, lat, data = crashes_map, maptype = "watercolor",  geom = "point", color = factor(meansev),
+       size = nb_of_vehicles, alpha = 0.01) +
+  scale_color_manual(values = c("red","orange", "yellow2", "yellowgreen", "green3")) +
+  guides(alpha = FALSE, color= FALSE, size = guide_legend(title = "Number of vehicles", label.position = "left")) +
+  facet_wrap(~ meansev, labeller=sev_labeller) +
+  theme(plot.background = element_rect(fill = "grey86"),
+        strip.text.x = element_text(size = 10, face = "bold"),
+        legend.position = c(0.85, 0.25),
+        legend.background = element_rect(fill = "grey86"),
+        legend.key = element_rect(fill = "grey86"),
+        legend.title  = element_text(face = "bold"))
+```
+<br> <br>
+These maps describe severity of injuries. We can see that there was only one fatal
+accident with one car involved and the less severe injury the more accidents. We
+can also conclude that the most severe injuries which is incapacitating injury and fatal injury took place on the suburbs of the city. The reason for this may be that in the suburbs of the city the permitted speed is higher and as a consequence the accidents are more severe.
+
+## When the accidents took place?
+<br> <br>
+```{r years1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+crashes$date <- as.Date(crashes$date, format = "%d/%m/%y")
+
+crashes$year <- as.numeric(format(crashes$date,'%Y'))
+
+years <- crashes %>%
+  group_by(year, injury) %>%
+  count()
+
+years2 <- years %>%
+  filter(year %in% c(2013,2014,2015,2016,2017))
+
+ggplot(data =na.omit(years2),
+       aes(x = year, y = n, alluvium = factor(injury))) +
+  geom_alluvium(aes(fill = factor(injury), colour = factor(injury)),
+                alpha = .75, decreasing = FALSE) +
+  scale_x_continuous(breaks = seq(2010, 2017, 1)) +
+  theme_bw() +
+  scale_fill_manual(labels = c("No", "Yes"), values = c("green3", "red")) +
+  scale_color_manual(labels = c("No", "Yes"), values = c("green3", "red")) +
+  guides(fill = guide_legend(title = "Has anyone been injured?"), color = FALSE) +
+  theme(legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Number of vehicle accidents by year")
+```
+<br> <br>
+This graph presents the change in number of accidents through years 2013 and 2017
+and also the ratio of accidents with injuries and without. The analyzed period has been shortened because of the fact that data concerning injuries was available from 2013 and we have incomplete data for 2018. This graph confirms that there were more accidents with no injuries. The overall number of accidents dropped between 2016 and 2017. The number of accidents without injuries varied more over time. Meanwhile the ones with some injuries were more or less stable in time.
+
+<br> <br>
+```{r years2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+dateSev <- subset(crashes, select = c(year, meansev))
+
+yearsSev <- dateSev %>%
+  group_by(year, meansev) %>%
+  count()
+
+yearsSev <- yearsSev %>%
+  filter(meansev %in% c(2,3,4), year %in% c(2013,2014,2015,2016,2017))
+
+ggplot(data =na.omit(yearsSev),
+       aes(x = year, y = n, alluvium = factor(meansev))) +
+  geom_alluvium(aes(fill = factor(meansev), colour = factor(meansev)),
+                alpha = .75, decreasing = FALSE) +
+  theme_bw() +
+  scale_fill_manual(labels = c("Incapacitating","Non‐incapacitating","Possible"),
+                    values = c("orange", "yellow2", "yellowgreen")) +
+  scale_color_manual(labels = c("Incapacitating","Non‐incapacitating","Possible"),
+                     values = c("orange", "yellow2", "yellowgreen")) +
+  guides(fill = guide_legend(title = "Severity of injuries"), color = FALSE) +
+  theme(legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Number of vehicle accidents with injuries by year", x = "")
+```
+<br> <br>
+This graph presents the change in number of accidents with injuries. We can see that
+number of accidents with possible injuries varied the most over time and there were
+more accidents of this kind. On the other hand number of accidents with incapacitating injuries
+hardly changed over time and there were less accidents of this kind.
+<br> <br>
+
+```{r years3, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+# data preparation
+sev2013 <- yearsSev %>%
+  filter(year == 2013) 
+
+colnames(sev2013)[colnames(sev2013) == 'n'] <- "y2013"
+
+sev2017 <- yearsSev %>%
+  filter(year == 2017)
+
+colnames(sev2017)[colnames(sev2017) == 'n'] <- "y2017"
+
+sev2013 <- subset(sev2013, select = c(meansev, y2013))
+sev2017 <- subset(sev2017, select = c(meansev, y2017))
+
+sev1317 <- merge(sev2013, sev2017, by = "meansev")
+
+sev1317 <- sev1317 %>% 
+  mutate(meansev = dplyr::recode(meansev, `2` = "Incapacitating", `3` = "Non‐incapacitating",`4` ="Possible"))
+
+
+left_label <- paste(sev1317$meansev, sev1317$y2013, sep=", ")
+right_label <- paste(sev1317$meansev, sev1317$y2017, sep=", ")
+sev1317$class <- ifelse((sev1317$y2013 - sev1317$y2017) > 0 & (sev1317$y2013 - sev1317$y2017) > 10, "green", "yellow")
+
+
+# slope chart
+ggplot(sev1317) + 
+  geom_segment(aes(x = 1, xend = 2, y = y2013, yend = y2017, col = class), 
+               size = 2, show.legend = F) + 
+  geom_vline(xintercept = 1, linetype = "dashed", size = .1) + 
+  geom_vline(xintercept = 2, linetype = "dashed", size = .1) +
+  scale_color_manual(labels = c("Up", "Down"), 
+                     values = c("green" = "green3", "yellow" = "yellow2")) +
+  xlim(.5, 2.5) + ylim(-1, (1.1*(max(sev1317$y2013, sev1317$y2017)))) + 
+  geom_text(label = left_label, y=sev1317$y2013, x=rep(1, NROW(sev1317)), hjust=1.1, size=4) + 
+  geom_text(label= right_label, y=sev1317$y2017, x=rep(2, NROW(sev1317)), hjust=-0.1, size=4) + 
+  geom_text(label="2013", x=1, y=1.1*(max(sev1317$y2013, sev1317$y2017)), hjust=1.2, size=7) + 
+  geom_text(label="2017", x=2, y=1.1*(max(sev1317$y2013, sev1317$y2017)), hjust=-0.1, size=7) + 
+  labs(title="Change in number of accidents with injuries") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 19, face = "bold"))
+```
+<br> <br>
+This graph presents the change in number of accidents with injuries from 2013 to
+2017. This confirms earlier conclusions because, as we can see, accidents with possible
+injuries dropped significantly while the ones with incapacitating injuries just slightly.
+<br> <br>
+```{r monthdp, include=FALSE}
+months <- crashes %>%   
+  select(date, injury, meansev)
+
+months$month <- month(as.Date(months$date))
+
+months$month <- month.abb[months$month]
+
+
+months$month <- factor(months$month, levels= c("Jan","Feb","Mar",
+                                               "Apr","May","Jun",
+                                               "Jul","Aug","Sep",
+                                               "Oct","Nov","Dec"))
+
+months[order(months$month), ]
+
+monthsInj <- months %>% 
+  group_by(month, injury) %>% 
+  summarise(number = n())
+
+monthsInj <- na.omit(monthsInj) %>% 
+  arrange(month, desc(injury)) %>% 
+  group_by(month) %>% 
+  mutate(label_sum = cumsum(number)) 
+
+monthsInj2 <- monthsInj %>% 
+  mutate(label_sum2 = label_sum*.5)
+```
+
+```{r months1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+ggplot(data = monthsInj2, aes(x = factor(month), y = number, fill = factor(injury))) +
+  geom_bar(na.rm = TRUE, position = "stack", width = 0.7, stat = "identity") +
+  geom_label(aes(y = label_sum2, label = number), fill = 'white', position = position_stack(),
+             vjust = 0.5, color = "black", size = 3) +
+  scale_fill_manual(values = c("green3", "red"), labels = c("No", "Yes")) +
+  theme_bw() +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Number of vehicle accidents by month", x = "") +
+  guides(fill = guide_legend(title = "Has anyone been injured?")) 
+```
+<br> <br>
+From this plot we can conclude that the highest number of accidents overall took place in March, January, May and December. But in case of March and January most of them were the accidents without any injuries. The highest number of accidents with injuries happened in June and May. This could be due to the fact that in winter and early spring the weather conditions are worse than in summer so most of the drivers are steering vehicles more carefully and as a consequence there are more accidents but there are not severe. The reason for large number of accidents in June and May may be that people go on vacation during these months and as a result there are more cars on the road. Additionally, good weather conditions encourage drivers to drive faster. All of this can lead to serious accidents.
+<br> <br>
+
+```{r months2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+monthsSev <- months %>%
+  filter(meansev != 5)
+
+ggplot(data = na.omit(monthsSev), aes(x = month, fill = factor(meansev))) +
+  geom_bar() +
+  scale_fill_manual(labels = c("Fatal Injury", "Incapacitating","Non‐incapacitating","Possible"),
+                    values = c("red","orange", "yellow2", "yellowgreen")) +
+  theme_bw() +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Number of vehicle accidents with injuries by month") +
+  guides(fill = guide_legend(title = "Severity of injuries")) 
+```
+<br> <br>
+The majority of accidents are the ones with possible injuries. We can see that the highest number of accidents with incapacitating injuries took place in May, November and August. High number of this kind off accidents also took place in February and October. Fatal accident took place in June. So as we can see most severe injuries took place in the summer, late autumn and winter. The reason for severe accidents in summer could be as mentioned before. In autumn and winter this could be due to the fact that some drivers are not steering their vehicles carefully despite bad weather conditions.
+<br> <br>
+
+```{r daydp, include=FALSE}
+days <- crashes %>%
+  select(date, injury, meansev)
+
+days$day <- weekdays(as.Date(days$date))
+
+days$day <- factor(days$day, levels= c("Monday", 
+                                       "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+
+days[order(days$day), ]
+
+daysInj <- days %>% 
+  group_by(day, injury) %>% 
+  summarise(number = n())
+
+daysInj <- na.omit(daysInj) %>% 
+  arrange(day, desc(injury)) %>% 
+  group_by(day) %>% 
+  mutate(label_sum = cumsum(number)) 
+
+daysInj2 <- daysInj %>% 
+  mutate(label_sum2 = label_sum*.5)
+```
+
+```{r days1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+
+ggplot(data = daysInj2, aes(x = factor(day), y = number, fill = factor(injury))) +
+  geom_bar(na.rm = TRUE, position = "stack", width = 0.7, stat = "identity") +
+  geom_label(aes(y = label_sum2, label = number), fill = 'white', position = position_stack(),
+             vjust = 0.5, color = "black", size = 3) +
+  scale_fill_manual(values = c("green3", "red"), labels = c("No", "Yes")) +
+  theme_bw() +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", title = "Number of vehicle accidents by the day of week", x = "") +
+  guides(fill = guide_legend(title = "Has anyone been injured?")) 
+
+```
+<br> <br>
+This plot presents number of accidents by the day of the week. We can conclude
+that the highest number of accidents both with and without injuries happened on
+Fridays. There were also a lot of accidents on Tuesdays and Thursdays. On Mondays
+there were also many accidents but most of them occurred without any injuries. The reason for that many accidents on Friday could be that it is the beginning of the weekend and people go on longer journeys. So there is more vehicles on the road and as a consequence there are more accidents overall and there are more severe accidents. The reason for the high number of accidents with no injuries on Mondays may be that people are in a rush to work because they overslept after the weekend.
+<br><br>
+```{r days2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+daysSev <- days %>%
+  filter(meansev != 5)
+
+ggplot(data = na.omit(daysSev), aes(x = day, fill = factor(meansev))) +
+  geom_bar() +
+  scale_fill_manual(labels = c("Fatal Injury", "Incapacitating","Non‐incapacitating","Possible"),
+                    values = c("red","orange", "yellow2", "yellowgreen")) +
+  theme_bw() +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Number of vehicle accidents with injuries by the day of week") +
+  guides(fill = guide_legend(title = "Severity of injuries")) 
+
+```
+<br> <br>
+This plot presents the same analysis but by the severity of injury. We can see that
+most often the accidents with incapacitating injuries happen on Fridays, Tuesdays
+and Thursdays. We can also see that a fatal accident took place on Thursday. The reason for more severe accidents on Fridays could be as above. People are going on longer journeys. Outside of the center of the city maximum authorized speed is greater. Combined with increased traffic on the road, this can lead to serious accidents.
+<br> <br>
+
+```{r timedp, include=FALSE}
+timedata <- crashes %>% 
+  select(time, injury)
+
+timedata$time <- chron(times=timedata$time)
+
+timedata$time <- hms(as.character(timedata$time))
+
+
+timedata$hour <- hour(timedata$time)
+
+timedata <- timedata %>%
+  mutate(Workday = hour %in% seq(9, 17))
+
+timesev <- timedata %>% 
+  filter(injury == 1)
+
+```
+
+```{r time1, echo=FALSE, message=FALSE, warning=FALSE, fig.show="hold", out.width="50%"}
+ggplot(timedata, aes(x = hour, fill = Workday)) + 
+  geom_histogram(breaks = seq(0, 24),  colour = "grey") +
+  coord_polar(start = 0) + theme_minimal() + 
+  scale_fill_brewer(palette = "Reds") + 
+  ylab("Count") + 
+  ggtitle("Overall vehicle accidents by time of day") + 
+  scale_x_continuous("", limits = c(0, 24), breaks = seq(0, 24), labels = seq(0,  24)) +
+  theme(plot.title = element_text(size = 19, face = "bold"))
+
+ggplot(timesev, aes(x = hour, fill = Workday)) + 
+  geom_histogram(breaks = seq(0, 24),  colour = "grey") +
+  coord_polar(start = 0) + theme_minimal() + 
+  scale_fill_brewer(palette = "Reds") + 
+  ylab("Count") + 
+  ggtitle("Vehicle accidents with injuries by time of day") + 
+  scale_x_continuous("", limits = c(0, 24), breaks = seq(0, 24), labels = seq(0,  24)) +
+  theme(plot.title = element_text(size = 19, face = "bold"))
+
+```
+<br> <br>
+These plots present changes in number of accidents throughout the day. In case of overall
+analysis which includes accidents with and without injuries the highest number of
+accidents took place between 7 a.m. and 8 a.m. and there are a lot of accidents throughout
+the working hours. In the case of analysis of accidents with some level of injuries
+we can see that the highest number of accidents took place between 8 a.m. and 9 a.m.
+There was also many accidents between 7 a.m. and 8 a.m., 2 p.m. and 3 p.m. and 4 p.m.
+and 5 p.m. It's not surprising that the most serious accidents occur at time when people are driving to work and from work because in this hours there are more vehicles on the roads.
+<br> <br>
+
+## Characteristics of drivers
+<br> <br>
+
+```{r gender1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+# data preparation
+gender_contr <- gender %>% 
+  group_by(gender, contribution) %>% 
+  summarise(number = n())
+
+gender_contr <- na.omit(gender_contr) %>% 
+  arrange(gender, desc(contribution)) %>% 
+  group_by(gender) %>% 
+  mutate(label_sum = cumsum(number)) 
+
+gender_contr2 <- gender_contr %>% 
+  mutate(label_sum2 = label_sum*.5, percent = number/sum(number))
+
+
+ggplot(data = gender_contr2, aes(x = gender, y = number, fill = factor(contribution))) +
+  geom_bar(na.rm = TRUE, position = "stack", width = 0.7, stat = "identity") +
+  geom_label(aes(y = label_sum2, label = paste(round(percent,2)*100,"%")), fill = 'white', position = position_stack(),
+             vjust = 0.5, color = "black", size = 3) +
+  scale_fill_manual(values = c("green3", "red"), labels = c("No", "Yes")) +
+  theme_bw() +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Contribution to accident by gender") +
+  guides(fill = guide_legend(title = "Did the person contribute to the accident?"))
+```
+<br> <br>
+We can see that 67% of women and 63% of men cause accidents. So we can conclude that mostly women causes accidents but the difference is only 4 percentage points.
+<br> <br>
+
+```{r gender2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+gender_inj <-  gender %>% 
+  filter(contribution == 1, injury == 1)
+
+gender_inj <- gender_inj %>%
+  group_by(gender) %>%
+  count(meansev)
+
+
+ggplot(data = na.omit(gender_inj), aes(x = gender, y =n ,fill = factor(meansev))) +
+  geom_bar(position = "stack",  stat = "identity") +
+  scale_fill_manual(labels = c( "Incapacitating","Non‐incapacitating","Possible"),
+                    values = c("orange", "yellow2", "yellowgreen")) +
+  theme_bw() +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Severity of injuries in accident caused by the person") +
+  guides(fill = guide_legend(title = "Severity of injuries")) 
+
+```
+<br> <br>
+From this graph we can conclude that men cause more
+accidents with incapacitating injuries and non-incapacitating injuries while women cause more accidents with possible injuries.
+<br> <br>
+
+```{r age1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+age <- crashes %>%
+  select(age, meansev) %>%
+  filter(meansev %in% c(2,3,4), age >= 16)
+
+ggplot(data = age, aes(x = age, fill = factor(meansev))) +
+  geom_density(alpha = 0.8, color = "black") +
+  theme_bw() +
+  scale_fill_manual(labels = c( "Incapacitating","Non‐incapacitating","Possible"),
+                    values = c("orange", "yellow2", "yellowgreen")) +
+  geom_vline(xintercept = c(28,48), linetype="dotted") +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Distribution of age by severity of injuries") +
+  guides(fill = guide_legend(title = "Severity of injuries")) +
+  scale_x_continuous(breaks = seq(20, 100, 10))
+```
+<br> <br>
+The graph above presents distribution of age by severity of injuries. The analysis covers the age of 16 and over. We can see that in all cases the highest number of people involved in the accidents are people around age of thirty. In case of incapacitating injuries and non-incapacitating injuries we can also see that there are many people around age of fifty that were involved in the accidents but this is more evident in case of incapacitating injuries. In case of large number of accidents with injuries which involve people around age of thirty the reason may be that people at this age are more mobile and they can afford their own cars so there are more people at this age on the roads and as a consequence there are more accidents which involve this people. The reason for rising number of accidents in case of incapacitating injuries and non-incapacitating injuries which involves people around age of fifty could be that people at this age are more vulnerable so if they are involved in the accident the propability of severe injuries rises.
+<br> <br>
+
+```{r age2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center"}
+age2 <- crashes %>%
+  select(age, meansev) %>%
+  filter(meansev %in% c(1,2,3,4), age >= 18)
+
+ggplot(data = na.omit(age2), aes(x = age, fill = factor(meansev))) +
+  geom_histogram() +
+  theme_bw() +
+  scale_fill_manual(labels = c("Fatal injury","Incapacitating","Non‐incapacitating","Possible"),
+                    values = c("red","orange", "yellow2", "yellowgreen")) +
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Distribution of age by severity of injuries") +
+  guides(fill = guide_legend(title = "Severity of injuries")) +
+  geom_text(x = 89, y = 6, label = "90") +
+  scale_x_continuous(breaks = seq(20, 100, 10))
+```
+<br> <br>
+At this graph distribution of age was presented in the form of a histogram in order to show age of the person with fatal injuries. We can see that the person was 90 years old.
+<br> <br>
+
+## Accidents by type of vehicle
+<br> <br>
+```{r vehicledp, include=FALSE}
+vehicles <- crashes %>% 
+  select(vehicle_type, injury, meansev) %>%
+  filter(vehicle_type != "")
+
+vehicles2 <- vehicles %>% 
+  group_by(vehicle_type) %>%
+  count()
+
+vehicles2$vehicle_type <- factor(vehicles2$vehicle_type, levels= c("Small bus", "Big bus", "Other",
+                                                           "Unknown heavy truck", "Motorcycle",
+                                                           "Tractor", "Truck/trailer",
+                                                           "Single unit truck",
+                                                           "Light truck", "Passenger car"))
+vehicles2[order(vehicles2$vehicle_type), ]
+
+```
+```{r car1, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center", fig.height = 6}
+
+ggplot(na.omit(vehicles2), aes(n, vehicle_type, label = n)) + 
+  geom_segment(aes(x = 0, y = vehicle_type, xend = n, yend = vehicle_type), color = "grey50") + 
+  geom_point(size = 15, show.legend = F, color = "green3")  +
+  geom_text(color = "white", size = 4, face = "bold") + 
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  labs(y = "", x = "", title = "Number of accidents by vehicle")
+```
+<br> <br>
+From the lolipop chart we can see that the highest number of accidents happened while driving passenger car. A lot of accidents also includes driving a light truck and a single unit track.
+<br> <br>
+
+
+```{r dfcar, include=FALSE}
+vehicles.agg <- vehicles %>% 
+  count(vehicle_type, meansev)
+
+vehicles.agg <- vehicles.agg %>% 
+  mutate(meansev = dplyr::recode(meansev, `1` = "Fatal injury", `2` = "Incapacitating", 
+                                 `3` = "Non-incapacitating",`4` ="Possible", `5`= "No injury"))
+
+vehicles.agg$meansev <- factor(vehicles.agg$meansev, levels= c("Fatal injury", "Incapacitating",
+                                                       "Non-incapacitating","Possible",
+                                                       "No injury"))
+vehicles.agg[order(vehicles.agg$meansev), ]
+```
+
+```{r car2, echo=FALSE, message=FALSE, warning=FALSE, fig.align="center", fig.width = 10}
+ggplot(na.omit(vehicles.agg), aes(x = vehicle_type, y = meansev)) + 
+  geom_tile(aes(fill = n), color = 'white', show.legend = F) +
+  theme_minimal() + 
+  geom_text(aes(label = n), size = 5, fontface = 'bold', color = 'white') +
+  labs(title = 'Number of accidents by vehicle and severity of injuries', x = "", y = "") +
+  theme(panel.grid = element_blank()) +
+  scale_fill_gradient(low = 'green3', high = 'red') +
+  theme(plot.title = element_text(face = "bold", size = 15),
+        axis.text.x = element_text(size = 10, angle = 45, margin=margin(30,0,0,0)),
+        axis.text.y = element_text(size = 10))
+
+```
+<br> 
+Based on this graph we can conclude that the most common accidents were these
+with no injuries involving passenger cars and light trucks. We can also see that in
+case of big and small buses, tractors, trailers and unknown heavy trucks there are
+only accidents with no injuries. In case of incapacitating injuries the most common
+vehicle types involved in the accidents were passenger car and light truck but there
+was also case with motorcycle and two with a single unit track. In the accident
+which casused fatal injury was involved a single unit track. 
+<br> <br>
